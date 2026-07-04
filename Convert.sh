@@ -89,11 +89,11 @@ esac
 echo "已选视频编码: $v_desc (容器: .$container)"
 echo "----------------------------------------"
 
-# 音频处理选择
+# 音频处理选择（PCM 放第一位）
 echo "请选择音频处理方式（常见容器后缀参考）:"
 audio_options=(
-    "直接复制源音轨 (不重新编码) -> 保持原始音频"
     "PCM 无损 (pcm_s16le) -> 常用于 .mov / .wav"
+    "直接复制源音轨 (不重新编码) -> 保持原始音频"
     "AAC 高质量 (aac -b:a 192k) -> 常用于 .mp4 / .m4a"
     "MP3 高质量 (libmp3lame -b:a 320k) -> 常用于 .mp3 / .mp4"
     "AC-3 环绕声 (ac3 -b:a 448k) -> 常用于 .mp4 / .mkv"
@@ -106,12 +106,12 @@ a_choice="${a_choice:-1}"
 
 case "$a_choice" in
     1)
-        audio_codec="copy"
-        a_desc="复制源音轨"
-        ;;
-    2)
         audio_codec="pcm_s16le"
         a_desc="PCM 无损"
+        ;;
+    2)
+        audio_codec="copy"
+        a_desc="复制源音轨"
         ;;
     3)
         audio_codec="aac -b:a 192k"
@@ -214,7 +214,7 @@ else
     echo "输出目录与源目录不同，自动使用覆盖模式（原文件保留）。"
 fi
 
-# 串行进度显示函数（已修复：显示错误信息）
+# 串行进度显示函数
 show_progress_serial() {
     local file="$1"
     local file_dur="$2"
@@ -229,14 +229,10 @@ show_progress_serial() {
         audio_param="-c:a $audio_codec"
     fi
 
-    # ---------- 硬件加速参数设置 ----------
     if [ "$is_nvenc" -eq 1 ]; then
-        # NVENC 编码：禁用硬件解码加速，避免 cuda 格式问题
         hw_param=""
-        # 强制 yuv420p 确保 NVENC 兼容
         filter_param="-vf format=yuv420p"
     else
-        # CPU 编码器 (ProRes, DNxHD)
         if [ $hwaccel_available -eq 1 ]; then
             hw_param="-hwaccel cuda"
             filter_param="-vf format=$pix_fmt"
@@ -247,7 +243,6 @@ show_progress_serial() {
     fi
 
     set +e
-    # 将 stderr 合并到 stdout，但 awk 会过滤并显示非进度行
     ffmpeg $hw_param -threads auto -i "$file" \
         -c:v $video_codec \
         $filter_param \
@@ -306,7 +301,6 @@ show_progress_serial() {
                 bar, overall_progress, el_str, rem_str, file;
             fflush(stdout);
         }
-        # 打印非进度行（如错误信息）到 stderr
         !/^out_time_ms=/ && !/^progress=/ && !/^frame=/ && !/^fps=/ && !/^stream=/ && !/^speed=/ {
             print | "cat >&2"
         }
@@ -319,7 +313,7 @@ show_progress_serial() {
     return $ffmpeg_exit
 }
 
-# 并行处理函数（同样修改）
+# 并行处理函数
 process_file_parallel() {
     local file="$1"
     local tmpfile="$2"
@@ -394,7 +388,7 @@ process_file_parallel() {
     fi
 }
 
-# 主循环（与之前相同，调用上述函数）
+# 主循环
 processed=0
 failed=0
 processed_duration=0
@@ -451,7 +445,6 @@ if [ "$PARALLEL_JOBS" -eq 1 ]; then
     done
     set -e
 else
-    # 并行模式（与之前相同）
     echo "并行模式启动，同时处理 $PARALLEL_JOBS 个文件。"
     echo "每个文件显示独立进度行。"
     echo "----------------------------------------"
