@@ -33,53 +33,94 @@ else
     IS_CURRENT_DIR=0
 fi
 
-# 视频编码选择
+# 视频编码选择（AV1 放在第一位，默认）
 echo "请选择视频编码格式（每个选项后为输出文件后缀名）:"
 video_options=(
+    "AV1 高质量 (libsvtav1, 适合分发) -> .mp4"
+    "MPEG-4 Part 2 (libxvid, 兼容性好) -> .avi"
+    "CineForm (cfhd, 高质量剪辑) -> .mov"
+    "VP9 高质量 (libvpx-vp9) -> .webm"
     "ProRes 422 HQ (高质量剪辑用) -> .mov"
     "H.264 无损 NVENC (仅NVIDIA GPU) -> .mp4"
     "H.264 高质量 NVENC (适合分发) -> .mp4"
     "H.265 高质量 NVENC (需GPU支持) -> .mp4"
-    "DNxHD (Avid 剪辑用) -> .mov"
+    "DNxHD (Avid 剪辑用, 自动缩放至1920x1080) -> .mov"
 )
 for i in "${!video_options[@]}"; do
     printf "  %d) %s\n" $((i+1)) "${video_options[$i]}"
 done
-read -p "请输入编号 [1-5] (默认1): " v_choice || true
+read -p "请输入编号 [1-9] (默认1): " v_choice || true
 v_choice="${v_choice:-1}"
 
 case "$v_choice" in
     1)
+        container="mp4"
+        video_codec="libsvtav1 -preset 8 -crf 35"
+        pix_fmt="yuv420p"
+        v_desc="AV1 (SVT-AV1)"
+        is_nvenc=0
+        is_dnxhd=0
+        ;;
+    2)
+        container="avi"
+        video_codec="mpeg4 -vtag xvid -b:v 8M"
+        pix_fmt="yuv420p"
+        v_desc="MPEG-4 Part 2 (Xvid)"
+        is_nvenc=0
+        is_dnxhd=0
+        ;;
+    3)
+        container="mov"
+        video_codec="cfhd -quality 1"
+        pix_fmt="yuv422p10le"
+        v_desc="CineForm HD"
+        is_nvenc=0
+        is_dnxhd=0
+        ;;
+    4)
+        container="webm"
+        video_codec="libvpx-vp9 -crf 30 -b:v 0"
+        pix_fmt="yuv420p"
+        v_desc="VP9"
+        is_nvenc=0
+        is_dnxhd=0
+        ;;
+    5)
         container="mov"
         video_codec="prores_ks -profile:v 4"
         pix_fmt="yuva444p10le"
         v_desc="ProRes 422 HQ"
         is_nvenc=0
+        is_dnxhd=0
         ;;
-    2)
+    6)
         container="mp4"
         video_codec="h264_nvenc -preset p7 -tune lossless"
         v_desc="H.264 无损 (NVENC)"
         is_nvenc=1
+        is_dnxhd=0
         ;;
-    3)
+    7)
         container="mp4"
         video_codec="h264_nvenc -preset p7 -rc vbr -cq 18 -b:v 0"
         v_desc="H.264 高质量 (NVENC)"
         is_nvenc=1
+        is_dnxhd=0
         ;;
-    4)
+    8)
         container="mp4"
         video_codec="hevc_nvenc -preset p7 -rc vbr -cq 18 -b:v 0"
         v_desc="H.265 高质量 (NVENC)"
         is_nvenc=1
+        is_dnxhd=0
         ;;
-    5)
+    9)
         container="mov"
-        video_codec="dnxhd -profile:v dnxhd_1080p"
+        video_codec="dnxhd -b:v 120M -threads 1"
         pix_fmt="yuv422p"
-        v_desc="DNxHD"
+        v_desc="DNxHD (120M, 缩放至1920x1080)"
         is_nvenc=0
+        is_dnxhd=1
         ;;
     *)
         echo "无效选择，退出。"
@@ -89,10 +130,11 @@ esac
 echo "已选视频编码: $v_desc (容器: .$container)"
 echo "----------------------------------------"
 
-# 音频处理选择（PCM 放第一位）
+# 音频处理选择（FLAC 放在第一位，默认）
 echo "请选择音频处理方式（常见容器后缀参考）:"
 audio_options=(
-    "PCM 无损 (pcm_s16le) -> 常用于 .mov / .wav"
+    "FLAC 无损 (flac) -> 常用于 .flac / .mkv"
+    "PCM 无损 (pcm_s16le) -> 常用于 .wav / .mov"
     "直接复制源音轨 (不重新编码) -> 保持原始音频"
     "AAC 高质量 (aac -b:a 192k) -> 常用于 .mp4 / .m4a"
     "MP3 高质量 (libmp3lame -b:a 320k) -> 常用于 .mp3 / .mp4"
@@ -101,41 +143,44 @@ audio_options=(
 for i in "${!audio_options[@]}"; do
     printf "  %d) %s\n" $((i+1)) "${audio_options[$i]}"
 done
-read -p "请输入编号 [1-5] (默认1): " a_choice || true
+read -p "请输入编号 [1-6] (默认1): " a_choice || true
 a_choice="${a_choice:-1}"
 
 case "$a_choice" in
     1)
+        audio_codec="flac"
+        a_desc="FLAC 无损"
+        ;;
+    2)
         audio_codec="pcm_s16le"
         a_desc="PCM 无损"
         ;;
-    2)
+    3)
         audio_codec="copy"
         a_desc="复制源音轨"
         ;;
-    3)
+    4)
         audio_codec="aac -b:a 192k"
         a_desc="AAC 192k"
         ;;
-    4)
+    5)
         audio_codec="libmp3lame -b:a 320k"
         a_desc="MP3 320k"
         ;;
-    5)
+    6)
         audio_codec="ac3 -b:a 448k"
         a_desc="AC-3 448k"
         ;;
     *)
         echo "无效选择，退出。"
         exit 1
-        ;;
 esac
 echo "已选音频处理: $a_desc"
 echo "----------------------------------------"
 
 # 并行任务数
-read -p "请输入并行任务数（同时转换多个文件，默认1，串行）: " PARALLEL_JOBS || true
-PARALLEL_JOBS="${PARALLEL_JOBS:-1}"
+read -p "请输入并行任务数（同时转换多个文件，默认3）: " PARALLEL_JOBS || true
+PARALLEL_JOBS="${PARALLEL_JOBS:-3}"
 if ! [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || [ "$PARALLEL_JOBS" -lt 1 ]; then
     PARALLEL_JOBS=1
 fi
@@ -232,6 +277,10 @@ show_progress_serial() {
     if [ "$is_nvenc" -eq 1 ]; then
         hw_param=""
         filter_param="-vf format=yuv420p"
+    elif [ "$is_dnxhd" -eq 1 ]; then
+        hw_param=""
+        filter_param="-vf \"scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv422p\""
+        echo "  注意: 视频将缩放至 1920x1080 以符合 DNxHD 标准。"
     else
         if [ $hwaccel_available -eq 1 ]; then
             hw_param="-hwaccel cuda"
@@ -243,71 +292,74 @@ show_progress_serial() {
     fi
 
     set +e
-    ffmpeg $hw_param -threads auto -i "$file" \
-        -c:v $video_codec \
-        $filter_param \
-        $audio_param \
-        -y -stats \
-        -progress pipe:1 \
-        "$tmpfile" 2>&1 | awk -v file="$file" \
-            -v file_dur="$file_dur" \
-            -v proc_dur="$proc_dur" \
-            -v total_dur="$total_dur" \
-            -v start_ts="$start_ts" \
-            -v tmp="$tmpfile" '
-        BEGIN {
-            printf "\n"
+    cmd=(
+        ffmpeg $hw_param -threads auto -i "$file"
+        -c:v $video_codec
+        $filter_param
+        $audio_param
+        -y -stats
+        -progress pipe:1
+        "$tmpfile"
+    )
+    "${cmd[@]}" 2>&1 | awk -v file="$file" \
+        -v file_dur="$file_dur" \
+        -v proc_dur="$proc_dur" \
+        -v total_dur="$total_dur" \
+        -v start_ts="$start_ts" \
+        -v tmp="$tmpfile" '
+    BEGIN {
+        printf "\n"
+    }
+    /^out_time_ms=/ {
+        gsub(/out_time_ms=/, "");
+        current_ms = $0;
+        if (current_ms < 0) current_ms = 0;
+        if (file_dur > 0) {
+            file_progress = (current_ms / 1000) / file_dur * 100;
+            if (file_progress > 100) file_progress = 100;
+        } else {
+            file_progress = 0;
         }
-        /^out_time_ms=/ {
-            gsub(/out_time_ms=/, "");
-            current_ms = $0;
-            if (current_ms < 0) current_ms = 0;
-            if (file_dur > 0) {
-                file_progress = (current_ms / 1000) / file_dur * 100;
-                if (file_progress > 100) file_progress = 100;
-            } else {
-                file_progress = 0;
-            }
-            overall_done = proc_dur + (file_progress / 100) * file_dur;
-            if (overall_done > total_dur) overall_done = total_dur;
-            overall_progress = (overall_done / total_dur) * 100;
-            if (overall_progress > 100) overall_progress = 100;
-            elapsed = systime() - start_ts;
-            if (elapsed < 0) elapsed = 0;
-            if (overall_progress > 0) {
-                est_total = elapsed / (overall_progress / 100);
-                est_remaining = est_total - elapsed;
-                if (est_remaining < 0) est_remaining = 0;
-            } else {
-                est_remaining = 0;
-            }
-            rem_h = int(est_remaining / 3600);
-            rem_m = int((est_remaining % 3600) / 60);
-            rem_s = int(est_remaining % 60);
-            rem_str = sprintf("%02d:%02d:%02d", rem_h, rem_m, rem_s);
-            el_h = int(elapsed / 3600);
-            el_m = int((elapsed % 3600) / 60);
-            el_s = int(elapsed % 60);
-            el_str = sprintf("%02d:%02d:%02d", el_h, el_m, el_s);
-            bar_len = 50;
-            filled = int(overall_progress / 100 * bar_len);
-            if (filled > bar_len) filled = bar_len;
-            bar = "";
-            for (i=0; i<bar_len; i++) {
-                if (i < filled) bar = bar "#";
-                else bar = bar "-";
-            }
-            printf "\r[%s] %5.1f%%  已用: %s  剩余: %s  文件: %s",
-                bar, overall_progress, el_str, rem_str, file;
-            fflush(stdout);
+        overall_done = proc_dur + (file_progress / 100) * file_dur;
+        if (overall_done > total_dur) overall_done = total_dur;
+        overall_progress = (overall_done / total_dur) * 100;
+        if (overall_progress > 100) overall_progress = 100;
+        elapsed = systime() - start_ts;
+        if (elapsed < 0) elapsed = 0;
+        if (overall_progress > 0) {
+            est_total = elapsed / (overall_progress / 100);
+            est_remaining = est_total - elapsed;
+            if (est_remaining < 0) est_remaining = 0;
+        } else {
+            est_remaining = 0;
         }
-        !/^out_time_ms=/ && !/^progress=/ && !/^frame=/ && !/^fps=/ && !/^stream=/ && !/^speed=/ {
-            print | "cat >&2"
+        rem_h = int(est_remaining / 3600);
+        rem_m = int((est_remaining % 3600) / 60);
+        rem_s = int(est_remaining % 60);
+        rem_str = sprintf("%02d:%02d:%02d", rem_h, rem_m, rem_s);
+        el_h = int(elapsed / 3600);
+        el_m = int((elapsed % 3600) / 60);
+        el_s = int(elapsed % 60);
+        el_str = sprintf("%02d:%02d:%02d", el_h, el_m, el_s);
+        bar_len = 50;
+        filled = int(overall_progress / 100 * bar_len);
+        if (filled > bar_len) filled = bar_len;
+        bar = "";
+        for (i=0; i<bar_len; i++) {
+            if (i < filled) bar = bar "#";
+            else bar = bar "-";
         }
-        END {
-            printf "\n";
-        }
-        '
+        printf "\r[%s] %5.1f%%  已用: %s  剩余: %s  文件: %s",
+            bar, overall_progress, el_str, rem_str, file;
+        fflush(stdout);
+    }
+    !/^out_time_ms=/ && !/^progress=/ && !/^frame=/ && !/^fps=/ && !/^stream=/ && !/^speed=/ {
+        print | "cat >&2"
+    }
+    END {
+        printf "\n";
+    }
+    '
     ffmpeg_exit=${PIPESTATUS[0]}
     set -e
     return $ffmpeg_exit
@@ -330,6 +382,10 @@ process_file_parallel() {
     if [ "$is_nvenc" -eq 1 ]; then
         hw_param=""
         filter_param="-vf format=yuv420p"
+    elif [ "$is_dnxhd" -eq 1 ]; then
+        hw_param=""
+        filter_param="-vf \"scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv422p\""
+        echo "  注意: 视频将缩放至 1920x1080 以符合 DNxHD 标准。"
     else
         if [ $hwaccel_available -eq 1 ]; then
             hw_param="-hwaccel cuda"
@@ -346,31 +402,37 @@ process_file_parallel() {
     fi
 
     set +e
-    ffmpeg $hw_param -threads auto -nostdin -i "$file" \
-        -c:v $video_codec \
-        $filter_param \
-        $audio_param \
-        -y -stats \
-        -progress pipe:1 \
-        "$tmpfile" 2> >(cat >&2) | awk -v file="$file" -v dur="$dur" '
-        BEGIN {
-            printf "\r[%s] 0.0%%  ", file;
-            fflush(stdout);
-        }
-        /^out_time_ms=/ {
-            gsub(/out_time_ms=/, "");
-            ms = $0;
-            if (ms < 0) ms = 0;
-            pct = (ms / 1000) / dur * 100;
-            if (pct > 100) pct = 100;
-            printf "\r[%s] %5.1f%%  ", file, pct;
-            fflush(stdout);
-        }
-        END {
-            printf "\r[%s] 100.0%% 完成\n", file;
-        }
-        '
-    ffmpeg_exit=$?
+    cmd=(
+        ffmpeg $hw_param -threads auto -nostdin -i "$file"
+        -c:v $video_codec
+        $filter_param
+        $audio_param
+        -y -stats
+        -progress pipe:1
+        "$tmpfile"
+    )
+    "${cmd[@]}" 2>&1 | awk -v file="$file" -v dur="$dur" '
+    BEGIN {
+        printf "\r[%s] 0.0%%  ", file;
+        fflush(stdout);
+    }
+    /^out_time_ms=/ {
+        gsub(/out_time_ms=/, "");
+        ms = $0;
+        if (ms < 0) ms = 0;
+        pct = (ms / 1000) / dur * 100;
+        if (pct > 100) pct = 100;
+        printf "\r[%s] %5.1f%%  ", file, pct;
+        fflush(stdout);
+    }
+    !/^out_time_ms=/ && !/^progress=/ && !/^frame=/ && !/^fps=/ && !/^stream=/ && !/^speed=/ {
+        print | "cat >&2"
+    }
+    END {
+        printf "\r[%s] 100.0%% 完成\n", file;
+    }
+    '
+    ffmpeg_exit=${PIPESTATUS[0]}
     set -e
 
     if [ $ffmpeg_exit -eq 0 ] && [ -f "$tmpfile" ] && [ -s "$tmpfile" ]; then
@@ -437,8 +499,11 @@ if [ "$PARALLEL_JOBS" -eq 1 ]; then
             fi
             processed=$((processed+1))
         else
-            echo "转换失败: $filename (FFmpeg 返回码: $ffmpeg_exit)"
+            echo "转换失败: $filename (FFmpeg 退出码: $ffmpeg_exit)"
             [ -f "$tmpfile" ] && rm -f "$tmpfile"
+            if [ "$is_dnxhd" -eq 1 ]; then
+                echo "  提示: DNxHD 编码失败，请尝试 ProRes (选项5)。"
+            fi
             failed=$((failed+1))
         fi
         echo "已完成第 $current_num 个文件"
